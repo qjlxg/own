@@ -310,4 +310,4 @@ def main_scraper():
     print(f"合并数据（含 1 年/6 月回报、规模等）保存至 '{merged_path}'")
 
 if __name__ == '__main__':
-
+    main_scraper()
