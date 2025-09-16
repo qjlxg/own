@@ -1,58 +1,57 @@
-
 name: Fund Analyzer Workflow
 
 on:
+  push:
+    paths:
+      - 'fund_analyzer_integrated.yml'
+      - 'fund_analyzer_integrated.py'
+  pull_request:
+    paths:
+      - 'fund_analyzer_integrated.yml'
+      - 'fund_analyzer_integrated.py'
   schedule:
-    - cron: '0 2 * * *'  # 每天北京时间 10:00（UTC 02:00，JST/CST 10:00）
-  workflow_dispatch:  # 支持手动触发
+    - cron: '0 2 * * *'  # 北京时间 10:00（UTC 02:00）
+  workflow_dispatch:
 
 jobs:
   run-fund-analyzer:
     runs-on: ubuntu-latest
 
     steps:
-      # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'  # 使用 Python 3.11，兼容 akshare
-          cache: 'pip'  # 缓存 pip 依赖
+          python-version: '3.11'
+          cache: 'pip'
 
-      # 安装依赖
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy requests beautifulsoup4 lxml akshare
+          pip install -r requirements.txt
 
-      # 创建输出目录
       - name: Create output directory
         run: mkdir -p data
 
-      # 运行基金分析脚本
       - name: Run fund analyzer
         run: |
           python fund_analyzer_integrated.py
-        continue-on-error: true  # 即使部分基金下载失败，继续运行
+        continue-on-error: true
 
-      # 检查输出文件
       - name: List output files
         run: |
           ls -lh data/
           ls -lh *.csv *.md
 
-      # 提交输出文件到仓库
       - name: Commit and push results
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           git add data/*.csv data/*.json *.csv *.md failed_funds.txt
-          git commit -m "Update fund analysis results - $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "Update fund analysis results - $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true  # 忽略无变更的情况
-
+        continue-on-error: true
