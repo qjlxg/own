@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import time
@@ -23,11 +24,11 @@ def randHeader():
         'Referer': 'http://fund.eastmoney.com/'
     }
 
-def getURL(url, tries_num=5, sleep_time=1, time_out=15, proxies=None):
+def getURL(url, tries_num=5, sleep_time=1, time_out=15, proxies=None, params=None):
     for i in range(tries_num):
         try:
             time.sleep(random.uniform(0.5, sleep_time))
-            res = requests.get(url, headers=randHeader(), timeout=time_out, proxies=proxies)
+            res = requests.get(url, headers=randHeader(), timeout=time_out, proxies=proxies, params=params)
             res.raise_for_status()
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 成功获取 {url}")
             return res
@@ -61,10 +62,10 @@ def get_fund_rankings(fund_type='hh', start_date='2022-09-16', end_date='2025-09
             records = data['datas']
             total = int(data['allRecords'])
             df = pd.DataFrame([r.split(',') for r in records])
-            df = df[[0, 1, 3]].rename(columns={0: 'code', 1: 'name', 3: f'rose({period})'})
-            df[f'rose({period})'] = pd.to_numeric(df[f'rose({period})'].str.replace('%', ''), errors='coerce') / 100
-            df[f'rank({period})'] = range(1, len(df) + 1)
-            df[f'rank_r({period})'] = df[f'rank({period})'] / total
+            df = df[[0, 1, 3]].rename(columns={0: 'code', 1: 'name', 3: f'rose_{period}'})
+            df[f'rose_{period}'] = pd.to_numeric(df[f'rose_{period}'].str.replace('%', ''), errors='coerce') / 100
+            df[f'rank_{period}'] = range(1, len(df) + 1)
+            df[f'rank_r_{period}'] = df[f'rank_{period}'] / total
             df.set_index('code', inplace=True)
             all_data.append(df)
             print(f"获取 {period} 排名数据：{len(df)} 条（总计 {total}）")
@@ -73,25 +74,31 @@ def get_fund_rankings(fund_type='hh', start_date='2022-09-16', end_date='2025-09
             try:
                 fallback_df = ak.fund_open_fund_rank_em()
                 fallback_df['code'] = fallback_df['基金代码'].astype(str).str.zfill(6)
-                fallback_df['name'] = fallback_df['基金简称'] + 'C'
-                fallback_df[f'rose({period})'] = fallback_df.get('近1年', np.random.uniform(0.05, 0.20, len(fallback_df)))
-                fallback_df[f'rank({period})'] = range(1, len(fallback_df) + 1)
-                fallback_df[f'rank_r({period})'] = fallback_df[f'rank({period})'] / 5000
+                fallback_df['name'] = fallback_df['基金简称']
+                fallback_df = fallback_df[fallback_df['name'].str.contains('C$|C类', na=False, regex=True)]  # 仅保留 C 类
+                fallback_df[f'rose_{period}'] = fallback_df.get('近1年', np.random.uniform(0.05, 0.20, len(fallback_df)))
+                fallback_df[f'rank_{period}'] = range(1, len(fallback_df) + 1)
+                fallback_df[f'rank_r_{period}'] = fallback_df[f'rank_{period}'] / len(fallback_df)
                 fallback_df.set_index('code', inplace=True)
-                df = fallback_df[[f'rose({period})', f'rank({period})', f'rank_r({period})', 'name']]
+                df = fallback_df[[f'rose_{period}', f'rank_{period}', f'rank_r_{period}', 'name']]
                 all_data.append(df)
                 print(f"使用 akshare fallback 获取 {period} 排名：{len(df)} 条")
             except Exception as fallback_e:
                 print(f"akshare fallback 失败: {fallback_e}")
-                df = pd.DataFrame(columns=[f'rose({period})', f'rank({period})', f'rank_r({period})', 'name'])
+                df = pd.DataFrame(columns=[f'rose_{period}', f'rank_{period}', f'rank_r_{period}', 'name'])
                 all_data.append(df)
+    
     if all_data and any(not df.empty for df in all_data):
-        df_final = all_data[0].copy()
+        df_final = all_data[0][[f'rose_3y', f'rank_3y', f'rank_r_3y', 'name']]  # 仅保留 3y 和 name
         for df in all_data[1:]:
             if not df.empty:
-                df_final = df_final.join(df, how='outer')
+                df = df.drop(columns=['name'], errors='ignore')  # 删除后续周期的 name 列
+                df_final = df_final.join(df, how='outer', rsuffix=f'_{df.columns[0][-2:]}')  # 添加后缀
+        # 筛选场外 C 类基金
+        df_final = df_final[df_final.index.str.len() == 6]  # 6 位代码
+        df_final = df_final[df_final['name'].str.contains('C$|C类', na=False, regex=True)]
         df_final.to_csv('fund_rankings.csv', encoding='gbk')
-        print(f"排名数据已保存至 'fund_rankings.csv'")
+        print(f"排名数据已保存至 'fund_rankings.csv'（{len(df_final)} 只场外 C 类基金）")
         return df_final
     return pd.DataFrame()
 
@@ -102,7 +109,7 @@ def apply_4433_rule(df, total_records):
     }
     filtered_df = df.copy()
     for period in thresholds:
-        rank_col = f'rank_r({period})'
+        rank_col = f'rank_r_{period}'
         if rank_col in filtered_df.columns:
             filtered_df = filtered_df[filtered_df[rank_col] <= thresholds[period]]
     print(f"四四三三法则筛选出 {len(filtered_df)} 只基金")
@@ -151,8 +158,8 @@ def download_fund_csv(fund_code: str, start_date: str = '20200101', end_date: st
             print(f"已下载页 {page}/{total_pages}")
             time.sleep(2)
         df = pd.DataFrame(all_data)
-        csv_filename = f'data/{fund_code}_fund_history.csv'
         os.makedirs('data', exist_ok=True)
+        csv_filename = f'data/{fund_code}_fund_history.csv'
         df.to_csv(csv_filename, index=False, encoding='utf-8-sig')
         print(f"下载完成：{csv_filename}")
         df['净值日期'] = pd.to_datetime(df['净值日期'])
@@ -233,7 +240,7 @@ def analyze_fund(fund_code, start_date, end_date):
             raise ValueError("没有足够的回报数据")
         annual_returns = returns.mean() * 252
         annual_volatility = returns.std() * np.sqrt(252)
-        sharpe_ratio = (annual_returns - 0.03) / annual_volatility if annual_volatility != 0 else 0
+        sharpe_ratio = (annual_returns - 0.018298) / annual_volatility if annual_volatility != 0 else 0
         cum_returns = (1 + returns).cumprod()
         rolling_max = cum_returns.expanding().max()
         drawdown = (cum_returns - rolling_max) / rolling_max
@@ -268,8 +275,8 @@ def main_scraper():
         )
         recommended_path = 'recommended_cn_funds.csv'
         recommended_df.to_csv(recommended_path, encoding='gbk')
-        print(f"推荐场外C类基金列表已保存至 '{recommended_path}'（{len(recommended_df)} 只基金）")
-        fund_codes = recommended_df.index.tolist()
+        print(f"推荐场外 C 类基金列表已保存至 '{recommended_path}'（{len(recommended_df)} 只基金）")
+        fund_codes = recommended_df.index.tolist()[:50]  # 限制 50 只
     else:
         print("排名数据为空，退出")
         return
@@ -284,27 +291,24 @@ def main_scraper():
     
     for i, fund_code in enumerate(fund_codes, 1):
         print(f"[{i}/{len(fund_codes)}] 处理基金 {fund_code}...")
-        # 下载历史净值并计算短期回报
         result = download_fund_csv(fund_code, start_date='20200101', end_date=end_date)
         if result['csv_filename']:
             merged_data.loc[merged_data.index == fund_code, 'rose_1y'] = result['rose_1y']
             merged_data.loc[merged_data.index == fund_code, 'rose_6m'] = result['rose_6m']
-        # 获取基金详情
         details = get_fund_details(fund_code)
         merged_data.loc[merged_data.index == fund_code, 'scale'] = details.get('scale', 0)
         merged_data.loc[merged_data.index == fund_code, 'manager'] = details.get('manager', 'N/A')
-        # 获取并分析风险指标
         risk_metrics = analyze_fund(fund_code, start_date, end_date)
         if 'error' not in risk_metrics:
             merged_data.loc[merged_data.index == fund_code, 'sharpe_ratio'] = risk_metrics.get('sharpe_ratio', np.nan)
             merged_data.loc[merged_data.index == fund_code, 'max_drawdown'] = risk_metrics.get('max_drawdown', np.nan)
-        # 获取经理数据
         get_fund_managers(fund_code)
         time.sleep(5)
     
     merged_path = 'merged_funds.csv'
     merged_data.to_csv(merged_path, encoding='gbk')
-    print(f"合并数据（含1年/6月回报、规模等）保存至 '{merged_path}'")
+    print(f"合并数据（含 1 年/6 月回报、规模等）保存至 '{merged_path}'")
 
 if __name__ == '__main__':
     main_scraper()
+```
