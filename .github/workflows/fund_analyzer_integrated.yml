@@ -3,7 +3,7 @@ name: Fund Analyzer Workflow
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # 每天北京时间10:00（UTC+8，GitHub Actions用UTC，2:00 UTC = 10:00 JST/CST）
+    - cron: '0 2 * * *'  # 每天北京时间 10:00（UTC 02:00，JST/CST 10:00）
   workflow_dispatch:  # 支持手动触发
 
 jobs:
@@ -34,10 +34,6 @@ jobs:
 
       # 运行基金分析脚本
       - name: Run fund analyzer
-        env:
-          # 可选：配置代理以应对反爬（如中国大陆访问限制）
-          HTTP_PROXY: ${{ secrets.HTTP_PROXY }}  # 在 GitHub Secrets 配置代理，如 http://proxy_ip:port
-          HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
         run: |
           python fund_analyzer_integrated.py
         continue-on-error: true  # 即使部分基金下载失败，继续运行
@@ -60,4 +56,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true  # 忽略无变更的情况
 
- 
