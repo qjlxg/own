@@ -183,7 +183,8 @@ def get_fund_details(fund_code, proxies=None):
         response = getURL(url, proxies=proxies)
         if not response:
             raise ValueError("无法获取响应")
-        tables = pd.read_html(response.text)
+        from io import StringIO
+        tables = pd.read_html(StringIO(response.text))
         if len(tables) < 2:
             raise ValueError("表格数量不足")
         df = tables[0]
